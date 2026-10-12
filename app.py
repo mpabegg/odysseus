@@ -255,6 +255,7 @@ app.add_middleware(_SlowRequestLogMiddleware)
 
 # ========= AUTH =========
 from routes.auth_routes import setup_auth_routes, SESSION_COOKIE
+from src import cf_access
 
 auth_manager = AuthManager()
 app.state.auth_manager = auth_manager
@@ -364,6 +365,26 @@ if AUTH_ENABLED:
                 return False
         return True
 
+    async def _cf_access_sso(request: Request, call_next):
+        """Sign in from a verified Cloudflare Access JWT (see src/cf_access.py).
+
+        Returns None when SSO is off or the identity is not accepted, so the
+        caller falls through to the normal login redirect / 401."""
+        if not cf_access.enabled():
+            return None
+        username = await _asyncio.to_thread(cf_access.username_for_request, request, auth_manager)
+        if not username:
+            return None
+        token = await _asyncio.to_thread(auth_manager.create_session_trusted, username)
+        if not token:
+            return None
+        logger.info("Signed in %s via Cloudflare Access", username)
+        request.state.current_user = username
+        request.state.api_token = False
+        response = await call_next(request)
+        cf_access.set_session_cookie(response, request, token)
+        return response
+
     class AuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             path = get_application_route_path(request.scope)
@@ -376,6 +397,14 @@ if AUTH_ENABLED:
             # header; never a credentialed request).
             if is_cors_preflight(request.method, request.headers):
                 return await call_next(request)
+            if (path == "/login" and request.method == "GET" and cf_access.enabled()
+                    and not cf_access.wants_local_login(request)
+                    and not auth_manager.validate_token(request.cookies.get(SESSION_COOKIE))):
+                async def _to_home(_request):
+                    return RedirectResponse(url=with_asgi_root_path(request.scope, "/"), status_code=302)
+                sso_response = await _cf_access_sso(request, _to_home)
+                if sso_response is not None:
+                    return sso_response
             if _is_auth_exempt(path):
                 return await call_next(request)
             # In-process internal-tool token bypass. Used by the agent
@@ -473,6 +502,9 @@ if AUTH_ENABLED:
             # --- Cookie-based session auth ---
             token = request.cookies.get(SESSION_COOKIE)
             if not auth_manager.validate_token(token):
+                sso_response = await _cf_access_sso(request, call_next)
+                if sso_response is not None:
+                    return sso_response
                 if path.startswith("/api/"):
                     return JSONResponse(status_code=401, content={"error": "Not authenticated"})
                 return RedirectResponse(

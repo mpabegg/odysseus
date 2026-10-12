@@ -60,6 +60,12 @@ services:
       - ODYSSEUS_ADMIN_PASSWORD=${ODYSSEUS_ADMIN_PASSWORD:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
       - SECURE_COOKIES=${SECURE_COOKIES:-}
+      # Cloudflare Access single sign-on (src/cf_access.py); off unless all
+      # three of TEAM_DOMAIN, AUD and USERS are set.
+      - CF_ACCESS_TEAM_DOMAIN=${CF_ACCESS_TEAM_DOMAIN:-}
+      - CF_ACCESS_AUD=${CF_ACCESS_AUD:-}
+      - CF_ACCESS_USERS=${CF_ACCESS_USERS:-}
+      - CF_ACCESS_ALLOW_ADMINS=${CF_ACCESS_ALLOW_ADMINS:-true}
       - EMBEDDING_URL=${EMBEDDING_URL:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-}
       - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
