@@ -37661,6 +37661,11 @@ async def stream_agent_loop(
         for _ev in reversed(tool_events):
             if _action_summary_selected:
                 break
+            # A blocked or failed call has no result to summarize. Several
+            # renderers echo the raw output, which would replace the model's
+            # answer with the error text.
+            if not tool_result_is_successful(_ev):
+                continue
             _tool_name = _resolved_tool_event_name(_ev)
             if (
                 len(_multi_read_email_summaries) > 1
