@@ -586,3 +586,20 @@ async def test_authority_denial_cannot_create_completion_receipt(monkeypatch):
     assert journal.actions[0].execution_id is None
     assert journal.actions[0].outcome["authoritative"] is False
     assert journal.actions[0].outcome["blocked"] is True
+
+
+@pytest.mark.parametrize("text", [
+    "Pode pesquisar na web como as pessoas estão usando o odysseus?",
+    "Can you look online about how people use Odysseus? https://odysseus-dev.github.io/odysseus/",
+])
+def test_always_grant_public_web_opt_in(monkeypatch, text):
+    monkeypatch.delenv("ODYSSEUS_ALWAYS_GRANT_WEB", raising=False)
+    assert not create_request_authority(text, owner="alice").permits(
+        ExactOperation.normalize("web_search", '{"query": "odysseus"}'))
+    monkeypatch.setenv("ODYSSEUS_ALWAYS_GRANT_WEB", "1")
+    granted = create_request_authority(text, owner="alice")
+    for tool in ("web_search", "web_fetch"):
+        assert granted.permits(ExactOperation.normalize(tool, '{"query": "odysseus"}'))
+    denied = create_request_authority(text, owner="alice",
+                                      policy=ToolPolicy(disabled_tools=frozenset({"web_search"})))
+    assert not denied.permits(ExactOperation.normalize("web_search", '{"query": "odysseus"}'))

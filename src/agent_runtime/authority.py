@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from functools import wraps
 from inspect import signature
 import json
+import os
 from pathlib import Path
 import re
 from uuid import uuid4
@@ -361,6 +362,13 @@ def interpret_request(request_text, *, history=(), workspace=None, active_docume
     return SemanticIntent(families, selected, required_read_operation_for_request(request_text, history))
 
 
+_PUBLIC_WEB_TOOLS = frozenset({"web_search", "web_fetch"})
+
+
+def _always_grant_public_web():
+    return os.environ.get("ODYSSEUS_ALWAYS_GRANT_WEB", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def create_request_authority(request_text, *, owner=None, session_id=None, workspace=None,
                              history=(), policy=None, active_document=False,
                              image_attachment=False, capabilities=None, client_runtime_context=None):
@@ -383,6 +391,12 @@ def create_request_authority(request_text, *, owner=None, session_id=None, works
         tools = {canonical_tool(operation.tool)}
     else:
         operation = None
+    if _always_grant_public_web():
+        # Deployment opt-in: the regex intent classifier is English-only and
+        # narrows any single-URL turn to web_fetch, while the agent loop still
+        # offers web_search as a core tool. Grant the read-only public web pair
+        # on every turn; tool policy denials below still win.
+        tools |= _PUBLIC_WEB_TOOLS
     grants = []
     for name in sorted(tools | {"ask_user", "update_plan"}):
         name = canonical_tool(name)
