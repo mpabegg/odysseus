@@ -94,7 +94,9 @@ from src.model_profiles import (
     tool_schema_profile,
 )
 from src.tool_execution import AgentExecutionBridge, bind_execution_bridge
-from src.agent_runtime.authority import is_internal_tool_request, request_authority_for_http
+from src.agent_runtime.authority import (
+    _PUBLIC_WEB_TOOLS, _always_grant_public_web, is_internal_tool_request, request_authority_for_http,
+)
 from src.agent_runtime.runtime_selection import uses_compact_preview_runtime
 from src.turn_contract import (
     FAMILY_TOOLS, bind_turn_contract, preserve_bound_editor_selected_tools,
@@ -3621,7 +3623,10 @@ def setup_chat_routes(
                 policy=_contract_policy, required_tools=_required_tools,
                 required_capabilities=_active_turn_capabilities,
                 selected_tools=_selected_tools,
-                always_available_tools=(FAMILY_TOOLS["documents"] if active_doc else ()),
+                always_available_tools=(
+                    (FAMILY_TOOLS["documents"] if active_doc else frozenset())
+                    | (_PUBLIC_WEB_TOOLS if _search_enabled and _always_grant_public_web() else frozenset())
+                ),
                 warm_tools=_warm_tools,
                 message=message, history=getattr(sess, "history", []) or [],
             )

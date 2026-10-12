@@ -603,3 +603,17 @@ def test_always_grant_public_web_opt_in(monkeypatch, text):
     denied = create_request_authority(text, owner="alice",
                                       policy=ToolPolicy(disabled_tools=frozenset({"web_search"})))
     assert not denied.permits(ExactOperation.normalize("web_search", '{"query": "odysseus"}'))
+
+
+def test_public_web_tools_survive_single_url_contract_narrowing():
+    from src.agent_runtime.authority import _PUBLIC_WEB_TOOLS
+    from src.tool_schemas import FUNCTION_TOOL_SCHEMAS
+    from src.turn_contract import requested_capabilities, resolve_turn_contract, selected_tools_for_request
+    message = "Pode pesquisar online como as pessoas usam o odysseus https://github.com/odysseus-dev/odysseus ?"
+    assert selected_tools_for_request(message) == frozenset({"web_fetch"})
+    contract = resolve_turn_contract(
+        capabilities=requested_capabilities(message), schemas=FUNCTION_TOOL_SCHEMAS,
+        policy=ToolPolicy(), selected_tools=selected_tools_for_request(message),
+        always_available_tools=_PUBLIC_WEB_TOOLS, message=message)
+    assert {"web_search", "web_fetch"} <= set(contract.offered)
+    assert contract.permits("web_search")
