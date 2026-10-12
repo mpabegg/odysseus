@@ -47,6 +47,24 @@ def uses_odysseus_progressive_thinking(value: object) -> bool:
     return is_odysseus_tool_profile_model(value)
 
 
+def default_thinking_mode(endpoint_url: object, model: object) -> str:
+    """Initial thinking mode for a chat bound to this endpoint and model.
+
+    Deployment opt-in: ODYSSEUS_LOCAL_THINKING_DEFAULT=on starts chats on
+    local endpoints with thinking enabled. The per-chat toggle still wins.
+    """
+
+    import os
+
+    if os.environ.get("ODYSSEUS_LOCAL_THINKING_DEFAULT", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return "off"
+    if not supports_user_thinking_toggle(model):
+        return "off"
+    from src.model_context import is_local_endpoint
+
+    return "on" if endpoint_url and is_local_endpoint(str(endpoint_url)) else "off"
+
+
 def supports_user_thinking_toggle(value: object) -> bool:
     """Whether the chat UI may expose an explicit thinking on/off switch."""
     leaf = model_id_leaf(value)

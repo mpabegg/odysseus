@@ -726,6 +726,7 @@ def setup_session_routes(
                 finally:
                     _db.close()
             previous_url = session.endpoint_url
+            previous_model = session.model
             session.model = model
             session.endpoint_url = endpoint_url
             # A registered endpoint id pins the exact route; a raw URL switch
@@ -745,6 +746,9 @@ def setup_session_routes(
                 meta = get_chatgpt_model_metadata(model)
                 if not meta or current_effort not in [lvl.lower() for lvl in meta.get("supported_reasoning_levels", [])]:
                     session.thinking_mode = "off"
+            if model != previous_model and (getattr(session, "thinking_mode", "") or "off") == "off":
+                from src.model_profiles import default_thinking_mode
+                session.thinking_mode = default_thinking_mode(endpoint_url, model)
             # Persist to DB
             db = SessionLocal()
             try:

@@ -23,6 +23,7 @@ def test_build_context_preface_web_search_success(monkeypatch):
     )
 
     mock_web_search.assert_called_with("extracted query", time_filter=None, return_sources=True)
+    assert mock_llm_call.call_args.kwargs["thinking_mode"] == "off"
 
 def test_build_context_preface_web_search_fallback_on_llm_failure(monkeypatch):
     """Test fallback to original query if LLM fails."""

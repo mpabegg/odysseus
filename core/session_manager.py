@@ -570,8 +570,10 @@ class SessionManager:
     ) -> Session:
         """Create a new session and save to database."""
         from src.chatgpt_subscription import is_chatgpt_subscription_base
+        from src.model_profiles import default_thinking_mode
         session_headers = {} if is_chatgpt_subscription_base(endpoint_url) else dict(headers or {})
         endpoint_id = (endpoint_id or "").strip() or None
+        thinking_mode = default_thinking_mode(endpoint_url, model)
         db = SessionLocal()
         try:
             db_session = DbSession(
@@ -584,6 +586,7 @@ class SessionManager:
                 owner=owner,
                 cwd=cwd or None,
                 endpoint_id=endpoint_id,
+                thinking_mode=thinking_mode,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc)
             )
@@ -600,6 +603,7 @@ class SessionManager:
                 owner=owner,
                 cwd=cwd or None,
                 endpoint_id=endpoint_id,
+                thinking_mode=thinking_mode,
             )
 
             self.sessions[session_id] = session

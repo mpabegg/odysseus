@@ -436,6 +436,10 @@ class ChatProcessor:
                         temperature=0.1,
                         max_tokens=50,
                         timeout=15,
+                        # Reasoning models otherwise spend the token budget
+                        # thinking, and llm_call returns that reasoning as the
+                        # query when the visible content is empty.
+                        thinking_mode="off",
                     ).strip()
 
                     if generated_query:
