@@ -43,6 +43,9 @@ python-dateutil
 caldav
 cryptography
 bcrypt
+# Cloudflare Access SSO (src/cf_access.py) verifies the Access JWT. mcp already
+# pulls it in; listed directly so SSO does not depend on that.
+PyJWT
 # Built-in servers use the v1 low-level Server decorator API. MCP SDK v2 is a
 # breaking rewrite, so keep fresh installs on the maintained v1 line until the
 # servers are migrated together.
