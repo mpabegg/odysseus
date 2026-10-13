@@ -617,3 +617,26 @@ def test_public_web_tools_survive_single_url_contract_narrowing():
         always_available_tools=_PUBLIC_WEB_TOOLS, message=message)
     assert {"web_search", "web_fetch"} <= set(contract.offered)
     assert contract.permits("web_search")
+
+
+def test_always_grant_tools_opt_in(monkeypatch):
+    import src.tool_security as tool_security
+    text = "Can guide me setting up my Odysseus <-> Gmail integration?"
+    settings = ExactOperation.normalize("manage_settings", '{"action": "list"}')
+    panel = ExactOperation.normalize("ui_control", '{"action": "open_panel", "panel": "settings"}')
+    monkeypatch.delenv("ODYSSEUS_ALWAYS_GRANT_TOOLS", raising=False)
+    monkeypatch.setattr(tool_security, "owner_is_admin_or_single_user", lambda owner: owner == "admin")
+    assert not create_request_authority(text, owner="admin").permits(settings)
+
+    monkeypatch.setenv("ODYSSEUS_ALWAYS_GRANT_TOOLS", " manage_settings , ui_control ")
+    granted = create_request_authority(text, owner="admin")
+    assert granted.permits(settings) and granted.permits(panel)
+    assert not granted.permits(ExactOperation.normalize("bash", '{"command": "id"}'))
+
+    # Admin-only tools stay out of non-admin authority; ordinary tools are still granted.
+    user = create_request_authority(text, owner="alice")
+    assert not user.permits(settings) and user.permits(panel)
+
+    denied = create_request_authority(text, owner="admin",
+                                      policy=ToolPolicy(disabled_tools=frozenset({"manage_settings"})))
+    assert not denied.permits(settings)

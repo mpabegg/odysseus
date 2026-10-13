@@ -369,6 +369,25 @@ def _always_grant_public_web():
     return os.environ.get("ODYSSEUS_ALWAYS_GRANT_WEB", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _always_granted_tools(owner=None):
+    """Deployment opt-in: ODYSSEUS_ALWAYS_GRANT_TOOLS is a comma-separated tool list.
+
+    The intent classifier derives authority from narrow phrasings, so a plain
+    "help me set up my Gmail integration" admits nothing and the model's
+    manage_settings / ui_control calls are denied. Tools restricted to admins
+    are only granted to admins (or single-user mode).
+    """
+    names = {canonical_tool(name.strip())
+             for name in os.environ.get("ODYSSEUS_ALWAYS_GRANT_TOOLS", "").split(",") if name.strip()}
+    if not names:
+        return frozenset()
+    from src.tool_security import is_public_blocked_tool, owner_is_admin_or_single_user
+    privileged = {name for name in names if is_public_blocked_tool(name)}
+    if privileged and not owner_is_admin_or_single_user(owner):
+        names -= privileged
+    return frozenset(names)
+
+
 def create_request_authority(request_text, *, owner=None, session_id=None, workspace=None,
                              history=(), policy=None, active_document=False,
                              image_attachment=False, capabilities=None, client_runtime_context=None):
@@ -397,6 +416,7 @@ def create_request_authority(request_text, *, owner=None, session_id=None, works
         # offers web_search as a core tool. Grant the read-only public web pair
         # on every turn; tool policy denials below still win.
         tools |= _PUBLIC_WEB_TOOLS
+    tools |= _always_granted_tools(owner)
     grants = []
     for name in sorted(tools | {"ask_user", "update_plan"}):
         name = canonical_tool(name)
