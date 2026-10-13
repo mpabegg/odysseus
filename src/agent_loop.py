@@ -37734,6 +37734,8 @@ async def stream_agent_loop(
                 "mcp__email__delete_email",
                 "unsubscribe_email",
                 "mcp__email__unsubscribe_email",
+                "scan_email_unsubscribes",
+                "mcp__email__scan_email_unsubscribes",
                 "block_sender",
                 "mcp__email__block_sender",
                 "manage_email_state",

@@ -455,10 +455,20 @@ async def test_streaming_external_disclosure_survives_trailing_whitespace(store,
         yield "data: " + json.dumps({"type": "metrics", "data": {"round_texts": [answer]}}) + "\n\n"
 
     events = [json.loads(chunk[6:]) async for chunk in stream([])]
-    disclosure = next(event["delta"] for event in events if event.get("delta") != answer and "delta" in event)
-    assert disclosure == ("\n\n" if answer.strip() else "") + DISCLOSURE
-    visible = "".join(event.get("delta", event.get("content", "")) for event in events)
-    assert visible.count(DISCLOSURE) == 1
+    if final:
+        # A trailing delta would replace a final_response on the client.
+        assert not any("delta" in event for event in events)
+        assert [e["content"] for e in events if e.get("type") == "final_response"][-1] == expected[0]
+    else:
+        disclosure = next(event["delta"] for event in events if event.get("delta") != answer and "delta" in event)
+        assert disclosure == ("\n\n" if answer.strip() else "") + DISCLOSURE
+        visible = "".join(event.get("delta", event.get("content", "")) for event in events)
+        assert visible.count(DISCLOSURE) == 1
+    from routes.chat_routes import _AgentRenderState
+    render = _AgentRenderState()
+    for event in events:
+        render.consume(event)
+    assert render.content.split() == expected[0].split()
     metrics = next(event["data"] for event in events if event.get("type") == "metrics")
     assert metrics["round_texts"] == expected
     assert expected[0].count(DISCLOSURE) == 1

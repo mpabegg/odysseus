@@ -374,7 +374,12 @@ def with_completion_gate(func):
             else:
                 for event in answer_events:
                     yield _event(event)
-                if disclosure_only:
+                if disclosure_only and has_final:
+                    # A delta after a final_response starts a new synthesis on
+                    # the client and would replace the answer with the
+                    # disclosure alone. Restate the final answer instead.
+                    yield _event({'type': 'final_response', 'content': answer.rstrip() + disclosure})
+                elif disclosure_only:
                     yield _event({'delta': disclosure})
             if provider_error:
                 yield _event({'type': 'completion_decision', 'data': decision.to_dict()})
