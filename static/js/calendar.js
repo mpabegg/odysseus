@@ -3431,7 +3431,9 @@ function _showEventForm(existing, defaultDate, defaultEndDate) {
   // Default to all-day when dragging across multiple days
   const ad = existing ? existing.all_day : (defaultEndDate && defaultEndDate !== defaultDate);
 
-  let calOpts = _calendars.filter(c => !_hiddenCals.has(c.href)).map(c =>
+  // iCal URL subscriptions are read-only mirrors; offer them only for the
+  // event already in them so the select still shows where it lives.
+  let calOpts = _calendars.filter(c => !_hiddenCals.has(c.href) && (c.source !== 'ics' || existing?.calendar_href === c.href)).map(c =>
     `<option value="${_e(c.href)}" ${existing && existing.calendar_href === c.href ? 'selected' : ''}>${_e(c.name)}</option>`
   ).join('');
 

@@ -1,5 +1,6 @@
 """Calendar routes — local SQLite-backed calendar CRUD."""
 
+import asyncio
 import logging
 import json
 import re
@@ -102,6 +103,13 @@ def _get_or_404_event(db, uid: str, owner: str) -> CalendarEvent:
     if owner and cal and (cal.owner is None or cal.owner != owner):
         raise HTTPException(404, "Event not found")
     return ev
+
+
+def _reject_read_only(cal) -> None:
+    """URL subscriptions are mirrors; a local edit would be reverted on refresh."""
+    if cal is not None and cal.source == "ics":
+        from src.ics_subscriptions import READ_ONLY_ERROR
+        raise HTTPException(403, READ_ONLY_ERROR)
 
 
 def _ics_escape(text: str) -> str:
@@ -1117,6 +1125,62 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         _save_caldav_accounts(owner, new_accounts)
         return {"ok": True}
 
+    # ── iCal URL subscriptions (read-only) ───────────────────────────────────
+
+    @router.get("/subscriptions")
+    async def list_subscriptions(request: Request):
+        """Configured iCal subscriptions. The feed URL is a secret and is never returned."""
+        from src import ics_subscriptions as ics
+
+        owner = _require_user(request)
+        return {"subscriptions": [ics.public_view(s) for s in ics.load_subscriptions(owner)]}
+
+    @router.post("/subscriptions")
+    async def add_subscription(request: Request):
+        """Validate a feed by downloading and parsing it, then save and mirror it."""
+        from src import ics_subscriptions as ics
+
+        owner = _require_user(request)
+        body = await request.json()
+        label = "".join(c for c in str(body.get("label") or "") if c.isprintable()).strip()[:120]
+        try:
+            url = await asyncio.to_thread(ics.normalize_feed_url, body.get("url", ""))
+            content = await ics.fetch_feed(url)
+            feed_name, _ = await asyncio.to_thread(ics.parse_feed, content, "probe")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(400, f"Could not download the feed: {type(e).__name__}")
+        sub = ics.new_subscription(owner, label or feed_name or "Subscribed", url)
+        ics.save_subscriptions(owner, ics.load_subscriptions(owner) + [sub])
+        result = await ics.refresh_owner(owner)
+        saved = next((s for s in ics.load_subscriptions(owner) if s["id"] == sub["id"]), sub)
+        return {"ok": True, "subscription": ics.public_view(saved), "errors": result["errors"]}
+
+    @router.delete("/subscriptions/{sub_id}")
+    async def delete_subscription(sub_id: str, request: Request):
+        """Remove a subscription and its mirrored calendar."""
+        from src import ics_subscriptions as ics
+
+        owner = _require_user(request)
+        subs = ics.load_subscriptions(owner)
+        sub = next((s for s in subs if s.get("id") == sub_id), None)
+        if not sub:
+            raise HTTPException(404, "Subscription not found")
+        ics.save_subscriptions(owner, [s for s in subs if s.get("id") != sub_id])
+        db = SessionLocal()
+        try:
+            cal = db.query(CalendarCal).filter(
+                CalendarCal.id == sub.get("calendar_id"), CalendarCal.owner == owner,
+            ).first()
+            if cal:
+                db.query(CalendarEvent).filter(CalendarEvent.calendar_id == cal.id).delete()
+                db.delete(cal)
+                db.commit()
+        finally:
+            db.close()
+        return {"ok": True}
+
     @router.post("/test")
     async def test_connection(request: Request):
         """Probe a CalDAV server with a PROPFIND. Accepts an optional body:
@@ -1227,7 +1291,17 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         on calendar open and by the periodic scheduler loop."""
         owner = _require_user(request)
         from src.caldav_sync import sync_caldav_direction
-        return await sync_caldav_direction(owner, direction)
+        from src.ics_subscriptions import load_subscriptions, refresh_owner
+        result = await sync_caldav_direction(owner, direction)
+        if direction != "pull" or not load_subscriptions(owner):
+            return result
+        subs = await refresh_owner(owner)
+        if result.get("errors") == ["CalDAV is not configured"]:
+            result["errors"] = []
+        for key in ("calendars", "events", "deleted"):
+            result[key] = result.get(key, 0) + subs[key]
+        result["errors"] = result.get("errors", []) + subs["errors"]
+        return result
 
 
     @router.delete("/calendars/{cal_id}")
@@ -1236,6 +1310,10 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         db = SessionLocal()
         try:
             cal = _get_or_404_calendar(db, cal_id, owner)
+            if cal.source == "ics":
+                # Otherwise the next refresh would recreate it.
+                from src.ics_subscriptions import remove_subscription_for_calendar
+                remove_subscription_for_calendar(owner, cal_id)
             db.query(CalendarEvent).filter(CalendarEvent.calendar_id == cal_id).delete()
             db.delete(cal)
             db.commit()
@@ -1357,6 +1435,7 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
                     raise HTTPException(404, "Calendar not found")
             if not cal:
                 cal = _ensure_default_calendar(db, owner)
+            _reject_read_only(cal)
 
             uid = str(uuid.uuid4())
             # Use the tz-detecting parser so events posted with an offset
@@ -1432,6 +1511,7 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         db = SessionLocal()
         try:
             ev = _get_or_404_event(db, base_uid, owner)
+            _reject_read_only(ev.calendar)
             if data.summary is not None:
                 ev.summary = data.summary
             if data.description is not None:
@@ -1494,6 +1574,7 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         db = SessionLocal()
         try:
             ev = _get_or_404_event(db, base_uid, owner)
+            _reject_read_only(ev.calendar)
             is_occurrence_delete = scope in {"occurrence", "instance"} and "::" in uid and bool(ev.rrule)
             is_caldav = ev.calendar and ev.calendar.source == "caldav"
             if scope in {"occurrence", "instance"} and not is_occurrence_delete:

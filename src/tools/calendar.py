@@ -14,6 +14,7 @@ from typing import Dict, Optional
 from src.tools._common import _parse_tool_args
 from src.tool_utils import get_upload_handler
 from src.upload_handler import reserve_upload_references
+from src.ics_subscriptions import READ_ONLY_ERROR
 
 logger = logging.getLogger(__name__)
 
@@ -470,6 +471,8 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None, *, impor
                            .first())
             if not cal:
                 cal = _ensure_default_calendar(db, owner)
+            if cal.source == "ics":
+                return {"error": READ_ONLY_ERROR, "exit_code": 1}
 
             all_day = bool(args.get("all_day", False))
             try:
@@ -697,6 +700,8 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None, *, impor
                     }
             if not ev:
                 return {"error": f"Event {uid} not found", "exit_code": 1}
+            if ev.calendar and ev.calendar.source == "ics":
+                return {"error": READ_ONLY_ERROR, "exit_code": 1}
             missing_id = reserve_upload_references(
                 get_upload_handler(),
                 owner,
@@ -827,6 +832,8 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None, *, impor
                     break
             if not ev:
                 return {"error": f"Event {uid} not found", "exit_code": 1}
+            if ev.calendar and ev.calendar.source == "ics":
+                return {"error": READ_ONLY_ERROR, "exit_code": 1}
             is_caldav = ev.calendar and ev.calendar.source == "caldav" and ev.remote_href
             if is_caldav:
                 _record_caldav_delete_tombstone(db, ev, owner)

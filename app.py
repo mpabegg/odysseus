@@ -1363,6 +1363,10 @@ async def _startup_event():
 
     _startup_tasks.append(asyncio.create_task(_null_owner_sweep_loop()))
 
+    # Read-only iCal URL subscriptions (ODYSSEUS_ICS_REFRESH_MINUTES, default 15).
+    from src.ics_subscriptions import refresh_loop as _ics_refresh_loop
+    _startup_tasks.append(asyncio.create_task(_ics_refresh_loop()))
+
     # Skills Audit is scheduled per owner by TaskScheduler. Do not also start
     # an ownerless audit here: its sidecar results cannot be read back through
     # an authenticated owner's skill namespace, and its model activity can

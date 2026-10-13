@@ -2949,6 +2949,7 @@ async function initIntegrations() {
 const INTG_TYPES = {
   api:     { label: 'API',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' },
   caldav:  { label: 'CalDAV',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' },
+  ics:     { label: 'iCal',    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' },
   contacts: { label: 'Contacts', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
   carddav: { label: 'CardDAV', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
   email:   { label: 'Email',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>' },
@@ -3048,7 +3049,7 @@ async function initUnifiedIntegrations() {
   }
 
   async function fetchAll() {
-    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes, tokenRes, calendarsRes] = await Promise.all([
+    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes, tokenRes, calendarsRes, icsRes] = await Promise.all([
       fetch('/api/auth/integrations', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { integrations: [] }).catch(() => ({ integrations: [] })),
       fetch('/api/calendar/config/accounts', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })),
       fetch('/api/contacts/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
@@ -3058,6 +3059,7 @@ async function initUnifiedIntegrations() {
       fetch('/api/vault/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('/api/tokens', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/calendar/calendars', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { calendars: [] }).catch(() => ({ calendars: [] })),
+      fetch('/api/calendar/subscriptions', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { subscriptions: [] }).catch(() => ({ subscriptions: [] })),
     ]);
     const items = [];
     // API integrations
@@ -3067,6 +3069,11 @@ async function initUnifiedIntegrations() {
     // CalDAV — one card per account
     for (const acc of (calRes.accounts || [])) {
       items.push({ type: 'caldav', id: acc.id, name: acc.label || 'Calendar (CalDAV)', detail: acc.url, enabled: true, data: acc });
+    }
+    // iCal URL subscriptions — the feed URL is secret, so only its host is shown
+    for (const sub of (icsRes.subscriptions || [])) {
+      const detail = sub.last_error ? `${sub.host} — error: ${sub.last_error}` : `${sub.host} — ${sub.events || 0} events, read-only`;
+      items.push({ type: 'ics', id: sub.id, name: esc(sub.label || 'Calendar URL'), detail: esc(detail), enabled: !sub.last_error, data: sub });
     }
     // Contacts import first, then the optional CardDAV sync account.
     const contactCount = Number(contactsRes.count || (contactsRes.contacts || []).length || 0);
@@ -3182,6 +3189,7 @@ async function initUnifiedIntegrations() {
         try {
           if (type === 'api') await fetch(`/api/auth/integrations/${id}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'caldav') await fetch(`/api/calendar/config/accounts/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+          else if (type === 'ics') await fetch(`/api/calendar/subscriptions/${id}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'contacts') {
             await fetch('/api/contacts/clear', { method: 'DELETE', credentials: 'same-origin' });
           }
@@ -3204,6 +3212,7 @@ async function initUnifiedIntegrations() {
     formEl.style.display = '';
     if (type === 'api') showApiForm(editId);
     else if (type === 'caldav') showCalDavForm(editId);
+    else if (type === 'ics') showIcsForm(editId);
     else if (type === 'contacts' || type === 'carddav') showCardDavForm();
     else if (type === 'email') showEmailForm(editId);
     else if (type === 'mcp') showMcpForm(editId);
@@ -3523,6 +3532,60 @@ async function initUnifiedIntegrations() {
       el('uf-caldav-msg').style.color = '';
       const d = await _runCalDavTest();
       _setCalDavMsg(d.ok ? 'Connected' : (d.error || 'Failed'), d.ok);
+    });
+  }
+
+  // ── iCal URL subscription form (read-only mirror; no edit, remove + re-add) ──
+  async function showIcsForm(editId) {
+    const isNew = !editId || editId === 'new';
+    const btnStyle = 'display:inline-flex;align-items:center;gap:5px;background:transparent;color:var(--accent, var(--red));border-color:color-mix(in srgb, var(--accent, var(--red)) 45%, var(--border));';
+    let sub = null;
+    if (!isNew) {
+      try {
+        const r = await fetch('/api/calendar/subscriptions', { credentials: 'same-origin' });
+        sub = ((await r.json()).subscriptions || []).find(s => s.id === editId) || null;
+      } catch (_) {}
+    }
+    const status = sub ? `${esc(sub.host)} · ${sub.events || 0} events · last refresh ${esc(sub.last_refresh || 'never')}${sub.last_error ? ` · <span style="color:var(--red)">${esc(sub.last_error)}</span>` : ''}` : '';
+    formEl.innerHTML = `
+      <div class="admin-card" style="margin-top:8px">
+        <h2 style="font-size:13px;display:flex;align-items:center;gap:6px;"><span style="color:var(--accent, var(--red));display:inline-flex">${INTG_TYPES.ics.icon}</span>${isNew ? 'Add Calendar URL (iCal)' : esc(sub?.label || 'Calendar URL')}</h2>
+        <div class="settings-col">
+          ${isNew ? `
+          <div style="font-size:11px;opacity:0.6;margin-bottom:6px;line-height:1.4">Read-only. Paste a private iCal address, e.g. Google Calendar → Settings → your calendar → <i>Secret address in iCal format</i>. Refreshed every 15 minutes and when the calendar opens.</div>
+          <div class="settings-row"><label class="settings-label">Label</label><input id="uf-ics-label" class="settings-input" placeholder="e.g. Google"></div>
+          <div class="settings-row"><label class="settings-label">iCal URL</label><input id="uf-ics-url" class="settings-input" type="password" autocomplete="off" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"></div>
+          ` : `<div style="font-size:11px;opacity:0.7;line-height:1.5">${status}<br>To change the URL, remove this subscription and add it again.</div>`}
+          <div class="settings-row" style="margin-top:10px;align-items:center;justify-content:flex-end;gap:6px;">
+            <span id="uf-ics-msg" style="font-size:11px;flex:1;margin-right:8px"></span>
+            ${isNew ? `<button class="admin-btn-add" id="uf-ics-save" style="${btnStyle}font-weight:600;">Save</button>` : ''}
+            <button class="admin-btn-add" id="uf-ics-cancel" style="${btnStyle}">${isNew ? 'Cancel' : 'Close'}</button>
+          </div>
+        </div>
+      </div>`;
+    el('uf-ics-cancel').addEventListener('click', () => { formEl.style.display = 'none'; });
+    if (!isNew) return;
+    const setMsg = (text, ok) => {
+      const msg = el('uf-ics-msg');
+      msg.textContent = text;
+      msg.style.color = ok === undefined ? '' : (ok ? 'var(--green, #50fa7b)' : 'var(--red)');
+    };
+    el('uf-ics-save').addEventListener('click', async () => {
+      setMsg('Downloading feed…');
+      try {
+        const resp = await fetch('/api/calendar/subscriptions', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: el('uf-ics-label').value.trim(), url: el('uf-ics-url').value.trim() }),
+        });
+        const d = await resp.json().catch(() => ({}));
+        if (!resp.ok) { setMsg(d.detail || 'Save failed', false); return; }
+        formEl.style.display = 'none';
+        await renderList();
+        notifyIntegrationsChanged();
+      } catch (e) {
+        setMsg('Save failed: ' + e.message, false);
+      }
     });
   }
 
@@ -5109,6 +5172,7 @@ async function initUnifiedIntegrations() {
   if (addBtn) {
     const _typeOptions = [
       ['api', 'API Service'],
+      ['ics', 'Calendar URL (iCal)'],
       ['caldav', 'CalDAV Calendar'],
       ['claude', 'Claude Agent'],
       ['codex', 'Codex Agent'],
